@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>แผนที่โลกแสงไฟยามค่ำคืน (ภาพถ่ายดาวเทียม)</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.6.0/dist/maplibre-gl.css">
+<style>
+  :root{
+    --bg:#05070d; --panel:#0d1220ee; --line:#23304d; --text:#e6ecf8; --muted:#8c9ab8;
+    --accent:#ffb73d; --accent2:#4cc3ff;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+    font-family:"Sarabun","Noto Sans Thai",system-ui,-apple-system,"Segoe UI",sans-serif}
+  #map{position:absolute;inset:0}
+  .topbar{position:absolute;top:10px;left:10px;right:10px;z-index:5;display:flex;flex-wrap:wrap;gap:8px;
+    align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:8px 10px;backdrop-filter:blur(8px);max-width:calc(100% - 20px)}
+  .topbar h1{font-size:15px;margin:0 8px 0 2px;color:var(--accent);white-space:nowrap}
+  input[type=text]{background:#111a30;color:var(--text);border:1px solid var(--line);border-radius:8px;
+    padding:8px 10px;min-width:210px;font-size:14px;outline:none}
+  input[type=text]:focus{border-color:var(--accent2)}
+  button{background:#16213d;color:var(--text);border:1px solid var(--line);border-radius:8px;
+    padding:8px 12px;font-size:14px;cursor:pointer;font-family:inherit}
+  button:hover{border-color:var(--accent2)}
+  button.primary{background:var(--accent);color:#1b1200;border-color:var(--accent);font-weight:700}
+  button.primary:hover{filter:brightness(1.1)}
+  button:disabled{opacity:.5;cursor:wait}
+  .side{position:absolute;top:70px;right:10px;bottom:34px;width:290px;z-index:4;background:var(--panel);
+    border:1px solid var(--line);border-radius:12px;display:none;flex-direction:column;overflow:hidden;
+    backdrop-filter:blur(8px)}
+  .side.show{display:flex}
+  .side header{padding:10px 12px;border-bottom:1px solid var(--line)}
+  .side header b{font-size:16px;color:var(--accent)}
+  .side header div{font-size:12px;color:var(--muted);margin-top:2px}
+  .side ol{list-style:none;margin:0;padding:6px;overflow:auto;flex:1;counter-reset:n}
+  .side li{padding:6px 8px;border-radius:6px;font-size:13px;cursor:pointer;counter-increment:n;display:flex;gap:8px}
+  .side li::before{content:counter(n);color:var(--muted);min-width:22px;text-align:right}
+  .side li:hover,.side li.active{background:#1b2a4d}
+  .tools{position:absolute;left:10px;bottom:34px;z-index:4;display:flex;flex-wrap:wrap;gap:6px;
+    background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px;max-width:420px;
+    backdrop-filter:blur(8px)}
+  .tools label{font-size:13px;display:flex;align-items:center;gap:5px;color:var(--muted);padding:0 4px}
+  #status{position:absolute;left:50%;top:78px;transform:translateX(-50%);z-index:6;background:#000c;
+    border:1px solid var(--line);padding:6px 14px;border-radius:20px;font-size:13px;display:none}
+  .plabel{color:#fff;font-size:11px;font-weight:600;white-space:nowrap;pointer-events:none;
+    text-shadow:0 0 3px #000,0 0 3px #000,0 0 6px #000}
+  .clabel{color:#bfe6ff;font-size:12px;font-weight:700;letter-spacing:.04em;white-space:nowrap;pointer-events:none;
+    text-transform:uppercase;text-shadow:0 0 3px #000,0 0 3px #000,0 0 6px #000}
+  .maplibregl-ctrl-attrib{font-size:10px}
+  @media (max-width:700px){
+    .side{width:auto;left:10px;top:auto;bottom:34px;height:34%}
+    .tools{bottom:auto;top:calc(100% - 34px);display:none}
+    .topbar h1{display:none}
+  }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div class="topbar">
+  <h1>🌃 Earth at Night</h1>
+  <input id="q" type="text" list="clist" placeholder="พิมพ์ชื่อประเทศเป็นภาษาอังกฤษ เช่น Thailand" autocomplete="off">
+  <datalist id="clist"></datalist>
+  <button id="go" class="primary">ประมวลผล</button>
+  <button id="png">⬇ ดาวน์โหลด PNG</button>
+  <button id="reset">⟲ Reset</button>
+</div>
+
+<div id="status"></div>
+
+<div class="tools">
+  <button id="rl" title="หมุนซ้าย">⟲ หมุนซ้าย</button>
+  <button id="rr" title="หมุนขวา">⟳ หมุนขวา</button>
+  <button id="tu" title="เอียงขึ้น">⤒ เอียง</button>
+  <button id="td" title="เอียงลง">⤓ ราบ</button>
+  <button id="proj">🌐 โลกกลม</button>
+  <button id="base">☀ ภาพกลางวัน</button>
+  <button id="spin">⏵ หมุนอัตโนมัติ</button>
+  <label><input type="checkbox" id="lbl" checked> ชื่อจังหวัด</label>
+  <label><input type="checkbox" id="bord"> เส้นเขตแดนทุกประเทศ</label>
+  <label><input type="checkbox" id="cnames"> ชื่อประเทศ</label>
+</div>
+
+<aside class="side" id="side">
+  <header><b id="cname"></b><div id="cinfo"></div></header>
+  <ol id="plist"></ol>
+</aside>
+
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.6.0/dist/maplibre-gl.js"></script>
+<script>
+/* ---------- แหล่งข้อมูล ---------- */
+const GIBS = 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best';
+const NIGHT_URL = GIBS + '/VIIRS_Black_Marble/default/2016-01-01/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png';
+const DAY_URL   = GIBS + '/BlueMarble_ShadedRelief_Bathymetry/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg';
+const NE = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/';
+const COUNTRIES_URL = NE + 'ne_50m_admin_0_countries.geojson';
+const NE_ADM1_URL   = NE + 'ne_50m_admin_1_states_provinces.geojson';
+
+const HOME = {center:[100,15], zoom:1.6, bearing:0, pitch:0};
+const EMPTY = {type:'FeatureCollection', features:[]};
+const $ = id => document.getElementById(id);
+
+/* ---------- แผนที่ ---------- */
+const map = new maplibregl.Map({
+  container:'map',
+  style:{
+    version:8,
+    projection:{type:'globe'},
+    sources:{
+      night:{type:'raster',tiles:[NIGHT_URL],tileSize:256,maxzoom:8,
+        attribution:'Imagery: NASA GIBS / VIIRS Black Marble · Boundaries: Natural Earth, geoBoundaries'},
+      day:{type:'raster',tiles:[DAY_URL],tileSize:256,maxzoom:8,
+        attribution:'Imagery: NASA GIBS / Blue Marble'}
+    },
+    layers:[
+      {id:'bg',type:'background',paint:{'background-color':'#000'}},
+      {id:'day',type:'raster',source:'day',layout:{visibility:'none'}},
+      {id:'night',type:'raster',source:'night',
+        paint:{'raster-brightness-max':1,'raster-contrast':0.15,'raster-saturation':0.1}}
+    ]
+  },
+  center:HOME.center, zoom:HOME.zoom, minZoom:0.6, maxZoom:18, maxPitch:75,
+  canvasContextAttributes:{preserveDrawingBuffer:true},  // เพื่อให้บันทึกเป็น PNG ได้
+  attributionControl:{compact:true}
+});
+map.addControl(new maplibregl.NavigationControl({visualizePitch:true,showCompass:true,showZoom:true}),'bottom-right');
+map.addControl(new maplibregl.ScaleControl({unit:'metric'}),'bottom-right');
+
+/* ---------- สถานะ ---------- */
+let countries = null, current = null, markers = [], provinceData = null, hoverId = null;
+let globe = true, dayMode = false, spinning = false, spinRAF = null;
+
+function status(msg){ const s=$('status'); if(msg){s.textContent=msg;s.style.display='block'}else s.style.display='none'; }
+
+/* ---------- โหลดรายชื่อประเทศ ---------- */
+async function loadCountries(){
+  if(countries) return countries;
+  status('กำลังโหลดข้อมูลประเทศ...');
+  const r = await fetch(COUNTRIES_URL);
+  if(!r.ok) throw new Error('โหลดข้อมูลประเทศไม่สำเร็จ');
+  countries = (await r.json()).features;
+  const dl = $('clist'); dl.innerHTML='';
+  [...new Set(countries.map(f=>f.properties.NAME))].sort().forEach(n=>{
+    const o=document.createElement('option'); o.value=n; dl.appendChild(o);
+  });
+  status(); return countries;
+}
+
+function findCountry(text){
+  const t = text.trim().toLowerCase(); if(!t) return null;
+  const keys = p => [p.NAME,p.NAME_LONG,p.ADMIN,p.SOVEREIGNT,p.FORMAL_EN,p.NAME_EN,p.NAME_TH,p.ISO_A3,p.ISO_A2,p.ADM0_A3]
+                    .filter(Boolean).map(s=>String(s).toLowerCase());
+  return countries.find(f=>keys(f.properties).includes(t))
+      || countries.find(f=>keys(f.properties).some(k=>k.startsWith(t)))
+      || countries.find(f=>keys(f.properties).some(k=>k.includes(t)));
+}
+
+/* ---------- เรขาคณิต ---------- */
+function polysOf(g){ return g.type==='Polygon'?[g.coordinates]:g.type==='MultiPolygon'?g.coordinates:[]; }
+function bboxOfRing(r){ let a=1e9,b=1e9,c=-1e9,d=-1e9; r.forEach(([x,y])=>{a=Math.min(a,x);b=Math.min(b,y);c=Math.max(c,x);d=Math.max(d,y)}); return [a,b,c,d]; }
+function ringCentroid(r){
+  let A=0,cx=0,cy=0;
+  for(let i=0,n=r.length-1;i<n;i++){
+    const [x0,y0]=r[i],[x1,y1]=r[i+1], k=x0*y1-x1*y0; A+=k; cx+=(x0+x1)*k; cy+=(y0+y1)*k;
+  }
+  if(Math.abs(A)<1e-12){ const b=bboxOfRing(r); return [(b[0]+b[2])/2,(b[1]+b[3])/2]; }
+  return [cx/(3*A), cy/(3*A)];
+}
+function labelPoint(g){
+  let best=null,ba=-1;
+  polysOf(g).forEach(p=>{ const b=bboxOfRing(p[0]), a=(b[2]-b[0])*(b[3]-b[1]); if(a>ba){ba=a;best=p[0]} });
+  return best? ringCentroid(best):null;
+}
+function countryBounds(g){
+  const polys = polysOf(g).map(p=>({b:bboxOfRing(p[0])}));
+  polys.forEach(p=>p.a=(p.b[2]-p.b[0])*(p.b[3]-p.b[1]));
+  const main = polys.reduce((m,p)=>p.a>m.a?p:m, polys[0]);
+  const mc = [(main.b[0]+main.b[2])/2,(main.b[1]+main.b[3])/2];
+  let b=[...main.b];
+  polys.forEach(p=>{
+    const c=[(p.b[0]+p.b[2])/2,(p.b[1]+p.b[3])/2];
+    if(p.a>=main.a*0.1 && Math.abs(c[0]-mc[0])<45 && Math.abs(c[1]-mc[1])<45){
+      b=[Math.min(b[0],p.b[0]),Math.min(b[1],p.b[1]),Math.max(b[2],p.b[2]),Math.max(b[3],p.b[3])];
+    }
+  });
+  return [[b[0],b[1]],[b[2],b[3]]];
+}
+
+/* ---------- ข้อมูลจังหวัด/เขตการปกครอง ---------- */
+async function loadProvinces(feat){
+  const p=feat.properties;
+  const iso = (p.ISO_A3 && p.ISO_A3!=='-99') ? p.ISO_A3 : p.ADM0_A3;
+  // 1) geoBoundaries
+  try{
+    const r = await fetch(`https://www.geoboundaries.org/api/current/gbOpen/${iso}/ADM1/`);
+    if(r.ok){
+      const meta = await r.json();
+      const url = meta.simplifiedGeometryGeoJSON || meta.gjDownloadURL;
+      const g = await (await fetch(url)).json();
+      const fs = g.features.map((f,i)=>({type:'Feature',id:i,geometry:f.geometry,
+        properties:{name:f.properties.shapeName||('ADM1-'+(i+1))}})).filter(f=>f.geometry);
+      if(fs.length) return {type:'FeatureCollection',features:fs,source:'geoBoundaries'};
+    }
+  }catch(e){ console.warn('geoBoundaries failed',e); }
+  // 2) สำรอง: Natural Earth
+  try{
+    const r = await fetch(NE_ADM1_URL);
+    if(r.ok){
+      const all = (await r.json()).features;
+      const fs = all.filter(f=>f.properties.adm0_a3===p.ADM0_A3)
+        .map((f,i)=>({type:'Feature',id:i,geometry:f.geometry,properties:{name:f.properties.name||('ADM1-'+(i+1))}}));
+      if(fs.length) return {type:'FeatureCollection',features:fs,source:'Natural Earth'};
+    }
+  }catch(e){ console.warn('NE failed',e); }
+  return {type:'FeatureCollection',features:[],source:'-'};
+}
+
+/* ---------- ชั้นข้อมูลบนแผนที่ ---------- */
+function clearOverlay(){
+  ['adm1-hl','adm1-line','adm1-fill','ctry-line','ctry-fill'].forEach(l=>{ if(map.getLayer(l)) map.removeLayer(l); });
+  ['adm1','ctry'].forEach(s=>{ if(map.getSource(s)) map.removeSource(s); });
+  markers.forEach(m=>m.marker.remove()); markers=[]; provinceData=null; hoverId=null;
+}
+
+function drawOverlay(country, prov){
+  clearOverlay();
+  map.addSource('ctry',{type:'geojson',data:{type:'FeatureCollection',features:[country]}});
+  map.addSource('adm1',{type:'geojson',data:prov});
+  map.addLayer({id:'ctry-fill',type:'fill',source:'ctry',paint:{'fill-color':'#4cc3ff','fill-opacity':0.06}});
+  map.addLayer({id:'adm1-fill',type:'fill',source:'adm1',paint:{
+    'fill-color':'#ffb73d','fill-opacity':['case',['boolean',['feature-state','hover'],false],0.30,0.0]}});
+  map.addLayer({id:'adm1-line',type:'line',source:'adm1',paint:{
+    'line-color':'#ffd27a','line-width':['interpolate',['linear'],['zoom'],2,0.6,8,1.4],'line-opacity':0.9}});
+  map.addLayer({id:'ctry-line',type:'line',source:'ctry',paint:{
+    'line-color':'#4cc3ff','line-width':['interpolate',['linear'],['zoom'],2,1.2,8,2.6]}});
+  map.addLayer({id:'adm1-hl',type:'line',source:'adm1',paint:{
+    'line-color':'#ffffff','line-width':3,'line-opacity':['case',['boolean',['feature-state','sel'],false],1,0]}});
+
+  if(map.getLayer('world-line')) map.moveLayer('world-line','ctry-fill');
+
+  // ป้ายชื่อ
+  prov.features.forEach(f=>{
+    const c=labelPoint(f.geometry); if(!c) return;
+    const el=document.createElement('div'); el.className='plabel'; el.textContent=f.properties.name;
+    el.style.display=$('lbl').checked?'':'none';
+    const marker=new maplibregl.Marker({element:el,anchor:'center',opacity:'1',opacityWhenCovered:'0'})
+      .setLngLat(c).addTo(map);
+    markers.push({marker,el,name:f.properties.name,lngLat:c});
+  });
+  provinceData=prov;
+}
+
+/* ---------- ประมวลผล ---------- */
+async function process(){
+  const btn=$('go'); btn.disabled=true;
+  try{
+    await loadCountries();
+    const feat = findCountry($('q').value);
+    if(!feat){ status('ไม่พบประเทศนี้ ลองพิมพ์ชื่อภาษาอังกฤษใหม่'); setTimeout(()=>status(),2500); return; }
+    stopSpin();
+    current = feat;
+    $('q').value = feat.properties.NAME;
+    status('กำลังโหลดเขตการปกครอง...');
+    const prov = await loadProvinces(feat);
+    drawOverlay(feat, prov);
+    map.fitBounds(countryBounds(feat.geometry),{padding:{top:90,bottom:60,left:60,right:window.innerWidth>700?330:60},
+      duration:2200,maxZoom:8,bearing:0,pitch:0});
+    showList(feat, prov);
+    status(prov.features.length?'':'ไม่พบข้อมูลเขตการปกครองระดับรอง แสดงเฉพาะเส้นพรมแดนประเทศ');
+    if(prov.features.length===0) setTimeout(()=>status(),3500);
+  }catch(e){
+    console.error(e); status('เกิดข้อผิดพลาด: '+e.message); setTimeout(()=>status(),3500);
+  }finally{ btn.disabled=false; }
+}
+
+function showList(feat, prov){
+  $('cname').textContent = feat.properties.NAME_LONG || feat.properties.NAME;
+  $('cinfo').textContent = `${prov.features.length} เขตการปกครองระดับรอง · แหล่งข้อมูล: ${prov.source}`;
+  const ol=$('plist'); ol.innerHTML='';
+  [...prov.features].sort((a,b)=>a.properties.name.localeCompare(b.properties.name)).forEach(f=>{
+    const li=document.createElement('li'); li.textContent=f.properties.name; li.dataset.id=f.id;
+    li.onclick=()=>selectProvince(f,li);
+    ol.appendChild(li);
+  });
+  $('side').classList.add('show');
+}
+
+function selectProvince(f, li){
+  document.querySelectorAll('#plist li.active').forEach(x=>x.classList.remove('active'));
+  li.classList.add('active');
+  prov_state_clear();
+  map.setFeatureState({source:'adm1',id:f.id},{sel:true,hover:true});
+  selId=f.id;
+  const polys=polysOf(f.geometry).map(p=>bboxOfRing(p[0]));
+  if(polys.length){
+    const main=polys.reduce((m,b)=>((b[2]-b[0])*(b[3]-b[1])>(m[2]-m[0])*(m[3]-m[1]))?b:m,polys[0]);
+    map.fitBounds([[main[0],main[1]],[main[2],main[3]]],{padding:{top:100,bottom:80,left:60,right:window.innerWidth>700?330:60},duration:1500,maxZoom:10});
+  }
+}
+let selId=null;
+function prov_state_clear(){ if(selId!==null && map.getSource('adm1')) map.setFeatureState({source:'adm1',id:selId},{sel:false,hover:false}); selId=null; }
+
+/* hover เลือกจังหวัด */
+map.on('mousemove','adm1-fill',e=>{
+  if(!e.features.length) return;
+  const id=e.features[0].id;
+  if(hoverId!==null && hoverId!==id && hoverId!==selId) map.setFeatureState({source:'adm1',id:hoverId},{hover:false});
+  hoverId=id; map.setFeatureState({source:'adm1',id},{hover:true});
+  map.getCanvas().style.cursor='pointer';
+});
+map.on('mouseleave','adm1-fill',()=>{
+  if(hoverId!==null && hoverId!==selId) map.setFeatureState({source:'adm1',id:hoverId},{hover:false});
+  hoverId=null; map.getCanvas().style.cursor='';
+});
+
+/* ---------- ตัวเลือก: เส้นเขตแดนทุกประเทศ / ชื่อประเทศ (ไม่บังคับ) ---------- */
+let cMarkers = [];
+function bboxArea(g){
+  let best=0; polysOf(g).forEach(p=>{ const b=bboxOfRing(p[0]); best=Math.max(best,(b[2]-b[0])*(b[3]-b[1])); });
+  return best;
+}
+function frontOfGlobe(ll){
+  if(!globe) return true;
+  const c=map.getCenter(), r=Math.PI/180;
+  const d=Math.acos(Math.min(1,Math.sin(ll[1]*r)*Math.sin(c.lat*r)+Math.cos(ll[1]*r)*Math.cos(c.lat*r)*Math.cos((ll[0]-c.lng)*r)));
+  return d<1.35;
+}
+// ประเทศใหญ่แสดงก่อน ประเทศเล็กค่อยๆ โผล่เมื่อซูมเข้า
+function countryLabelVisible(area){ return area > 3000/Math.pow(4,map.getZoom()); }
+function updateCountryLabels(){
+  cMarkers.forEach(m=>{ m.el.style.display = countryLabelVisible(m.area)?'':'none'; });
+}
+map.on('zoom',()=>{ if(cMarkers.length) updateCountryLabels(); });
+
+async function toggleBorders(){
+  const on=$('bord').checked;
+  if(!on){
+    if(map.getLayer('world-line')) map.removeLayer('world-line');
+    if(map.getSource('world')) map.removeSource('world');
+    return;
+  }
+  try{
+    await loadCountries();
+    if(!$('bord').checked || map.getSource('world')) return;
+    map.addSource('world',{type:'geojson',data:{type:'FeatureCollection',features:countries}});
+    map.addLayer({id:'world-line',type:'line',source:'world',paint:{
+      'line-color':'#7fb8ff','line-opacity':0.7,
+      'line-width':['interpolate',['linear'],['zoom'],1,0.5,6,1.4]}},
+      map.getLayer('ctry-fill')?'ctry-fill':undefined);
+  }catch(e){ status('โหลดเส้นเขตแดนไม่สำเร็จ'); setTimeout(()=>status(),2500); $('bord').checked=false; }
+}
+let cnSeq=0;
+async function toggleCountryNames(){
+  const my=++cnSeq;
+  cMarkers.forEach(m=>m.marker.remove()); cMarkers=[];
+  if(!$('cnames').checked) return;
+  try{
+    await loadCountries();
+    if(my!==cnSeq || !$('cnames').checked) return;   // กันสร้างซ้ำเมื่อกดเร็วๆ
+    cMarkers.forEach(m=>m.marker.remove()); cMarkers=[];
+    countries.forEach(f=>{
+      const c=labelPoint(f.geometry); if(!c) return;
+      const el=document.createElement('div'); el.className='clabel'; el.textContent=f.properties.NAME;
+      const marker=new maplibregl.Marker({element:el,anchor:'center',opacity:'1',opacityWhenCovered:'0'})
+        .setLngLat(c).addTo(map);
+      cMarkers.push({marker,el,name:f.properties.NAME,lngLat:c,area:bboxArea(f.geometry)});
+    });
+    updateCountryLabels();
+  }catch(e){ status('โหลดชื่อประเทศไม่สำเร็จ'); setTimeout(()=>status(),2500); $('cnames').checked=false; }
+}
+$('bord').onchange=toggleBorders;
+$('cnames').onchange=toggleCountryNames;
+
+/* ---------- Reset ---------- */
+function resetAll(){
+  stopSpin(); clearOverlay(); current=null; selId=null;
+  $('bord').checked=false; $('cnames').checked=false; toggleBorders(); toggleCountryNames();
+  $('q').value=''; $('side').classList.remove('show'); $('plist').innerHTML=''; status();
+  map.flyTo({...HOME,duration:1800});
+}
+
+/* ---------- ควบคุมมุมมอง ---------- */
+$('rl').onclick=()=>map.easeTo({bearing:map.getBearing()-30,duration:500});
+$('rr').onclick=()=>map.easeTo({bearing:map.getBearing()+30,duration:500});
+$('tu').onclick=()=>map.easeTo({pitch:Math.min(75,map.getPitch()+15),duration:500});
+$('td').onclick=()=>map.easeTo({pitch:Math.max(0,map.getPitch()-15),duration:500});
+$('proj').onclick=()=>{
+  globe=!globe; map.setProjection({type:globe?'globe':'mercator'});
+  $('proj').textContent=globe?'🌐 โลกกลม':'🗺 แผนที่แบน';
+};
+$('base').onclick=()=>{
+  dayMode=!dayMode;
+  map.setLayoutProperty('day','visibility',dayMode?'visible':'none');
+  map.setLayoutProperty('night','visibility',dayMode?'none':'visible');
+  $('base').textContent=dayMode?'🌙 ภาพกลางคืน':'☀ ภาพกลางวัน';
+};
+$('lbl').onchange=()=>markers.forEach(m=>m.el.style.display=$('lbl').checked?'':'none');
+function spinStep(){ if(!spinning) return; map.setCenter([map.getCenter().lng+0.25,map.getCenter().lat]); spinRAF=requestAnimationFrame(spinStep); }
+function stopSpin(){ spinning=false; cancelAnimationFrame(spinRAF); $('spin').textContent='⏵ หมุนอัตโนมัติ'; }
+$('spin').onclick=()=>{ if(spinning){stopSpin();return;} spinning=true; $('spin').textContent='⏸ หยุดหมุน'; spinStep(); };
+map.on('mousedown',()=>{ if(spinning) stopSpin(); });
+
+$('go').onclick=process;
+$('q').addEventListener('keydown',e=>{ if(e.key==='Enter') process(); });
+$('q').addEventListener('focus',()=>loadCountries().catch(()=>{}));
+$('reset').onclick=resetAll;
+
+/* ---------- ดาวน์โหลด PNG ---------- */
+$('png').onclick=()=>{
+  map.once('render',()=>{
+    const src=map.getCanvas(), W=src.width, H=src.height, k=W/src.clientWidth;
+    const c=document.createElement('canvas'); c.width=W; c.height=H;
+    const g=c.getContext('2d');
+    g.fillStyle='#000'; g.fillRect(0,0,W,H); g.drawImage(src,0,0);
+
+    // ป้ายชื่อจังหวัด
+    if(current && $('lbl').checked){
+      const ctr=map.getCenter();
+      g.font=`600 ${Math.round(11*k)}px sans-serif`; g.textAlign='center'; g.textBaseline='middle';
+      g.lineJoin='round'; g.lineWidth=3*k; g.strokeStyle='rgba(0,0,0,.9)'; g.fillStyle='#fff';
+      markers.forEach(m=>{
+        if(globe){ // ข้ามจุดที่อยู่หลังโลก
+          const [x1,y1]=[m.lngLat[0]*Math.PI/180,m.lngLat[1]*Math.PI/180],[x2,y2]=[ctr.lng*Math.PI/180,ctr.lat*Math.PI/180];
+          const d=Math.acos(Math.min(1,Math.sin(y1)*Math.sin(y2)+Math.cos(y1)*Math.cos(y2)*Math.cos(x1-x2)));
+          if(d>1.35) return;
+        }
+        const p=map.project(m.lngLat); const x=p.x*k,y=p.y*k;
+        if(x<0||y<0||x>W||y>H) return;
+        g.strokeText(m.name,x,y); g.fillText(m.name,x,y);
+      });
+    }
+    // ชื่อประเทศ (ถ้าเปิดใช้)
+    if(cMarkers.length){
+      g.font=`700 ${Math.round(12*k)}px sans-serif`; g.textAlign='center'; g.textBaseline='middle';
+      g.lineJoin='round'; g.lineWidth=3*k; g.strokeStyle='rgba(0,0,0,.9)'; g.fillStyle='#bfe6ff';
+      cMarkers.forEach(m=>{
+        if(!countryLabelVisible(m.area) || !frontOfGlobe(m.lngLat)) return;
+        const p=map.project(m.lngLat); const x=p.x*k,y=p.y*k;
+        if(x<0||y<0||x>W||y>H) return;
+        const t=m.name.toUpperCase(); g.strokeText(t,x,y); g.fillText(t,x,y);
+      });
+    }
+    // หัวเรื่อง
+    const title = current ? (current.properties.NAME_LONG||current.properties.NAME) : 'Earth at Night';
+    const sub = current && provinceData ? `${provinceData.features.length} จังหวัด/เขตการปกครอง` : 'NASA VIIRS Black Marble';
+    g.textAlign='left'; g.textBaseline='top';
+    g.fillStyle='rgba(0,0,0,.55)'; g.fillRect(16*k,16*k,Math.max(260,title.length*16+60)*k,58*k);
+    g.fillStyle='#ffb73d'; g.font=`700 ${22*k}px sans-serif`; g.fillText(title,28*k,22*k);
+    g.fillStyle='#cfd8ec'; g.font=`${13*k}px sans-serif`; g.fillText(sub,28*k,50*k);
+    g.textAlign='right'; g.textBaseline='bottom'; g.fillStyle='#9aa8c6'; g.font=`${11*k}px sans-serif`;
+    g.fillText('Imagery: NASA GIBS · Boundaries: Natural Earth / geoBoundaries',W-14*k,H-10*k);
+
+    c.toBlob(b=>{
+      const a=document.createElement('a'); a.href=URL.createObjectURL(b);
+      a.download=(current?current.properties.NAME.replace(/\W+/g,'_'):'earth_night')+'_night_lights.png';
+      a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+    },'image/png');
+  });
+  map.triggerRepaint();
+};
+
+map.on('error',e=>console.warn('map error',e && e.error && e.error.message));
+</script>
+</body>
+</html>
